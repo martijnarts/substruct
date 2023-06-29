@@ -1,0 +1,17 @@
+[package]
+name = "smooth_grahpql"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+convert_case = "0.6.0"
+proc-macro2 = "1.0.60"
+quote = "1.0.28"
+syn = "2.0.18"
+darling = "0.20.1"
+
+[dev-dependencies]
+syn = { version = "2.0.18", features = ["full"] }
