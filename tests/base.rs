@@ -1,12 +1,12 @@
-use smooth_grahpql::{Smooth, smooth_use};
+use substruct::{substruct_use, SubstructRoot};
 
-#[derive(Smooth)]
+#[derive(SubstructRoot)]
 struct Query {
     name: String,
     age: i32,
 }
 
-#[smooth_use(root = Query, fields(name))]
+#[substruct_use(root = Query, fields(name))]
 fn get_name(query: _) -> String {
     query.name().clone()
 }

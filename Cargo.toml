@@ -1,5 +1,5 @@
 [package]
-name = "smooth_grahpql"
+name = "substruct"
 version = "0.1.0"
 edition = "2021"
 

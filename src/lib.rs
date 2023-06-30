@@ -1,16 +1,16 @@
 use core::panic;
 
 use convert_case::{Case, Casing};
+use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro::TokenStream;
-use darling::ast::NestedMeta;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, Attribute, DeriveInput, ItemFn};
 
-trait Smooth {}
+trait SubstructRoot {}
 
-fn parse_smooth_macro(input: DeriveInput) -> TokenStream2 {
+fn parse_substruct_root_macro(input: DeriveInput) -> TokenStream2 {
     let data = match input.data {
         syn::Data::Struct(s) => s,
         _ => panic!("Only structs are supported"),
@@ -46,28 +46,30 @@ fn parse_smooth_macro(input: DeriveInput) -> TokenStream2 {
     }
 }
 
-#[proc_macro_derive(Smooth)]
-pub fn smooth_macro(orig_input: TokenStream) -> TokenStream {
+#[proc_macro_derive(SubstructRoot)]
+pub fn substruct_root(orig_input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(orig_input as DeriveInput);
 
-    TokenStream::from(parse_smooth_macro(input))
+    TokenStream::from(parse_substruct_root_macro(input))
 }
 
 #[derive(FromMeta)]
 #[darling()]
-struct SmoothUse {
+struct SubstructUse {
     #[allow(dead_code)]
     root: syn::ExprPath,
     fields: darling::util::PathList,
 }
 
-fn parse_smooth_use(args: TokenStream2, item_fn: ItemFn) -> TokenStream2 {
+fn parse_substruct_use(args: TokenStream2, item_fn: ItemFn) -> TokenStream2 {
     let args = match NestedMeta::parse_meta_list(args) {
         Ok(v) => v,
-        Err(e) => { return TokenStream2::from(Error::from(e).write_errors()); }
+        Err(e) => {
+            return TokenStream2::from(Error::from(e).write_errors());
+        }
     };
 
-    let attr = match SmoothUse::from_list(&args) {
+    let attr = match SubstructUse::from_list(&args) {
         Ok(v) => v,
         Err(e) => {
             return e.write_errors();
@@ -108,26 +110,26 @@ fn parse_smooth_use(args: TokenStream2, item_fn: ItemFn) -> TokenStream2 {
 }
 
 #[proc_macro_attribute]
-pub fn smooth_use(attr: TokenStream, fn_input: TokenStream) -> TokenStream {
+pub fn substruct_use(attr: TokenStream, fn_input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(fn_input as ItemFn);
-    TokenStream::from(parse_smooth_use(attr.into(), input))
+    TokenStream::from(parse_substruct_use(attr.into(), input))
 }
 
 #[cfg(test)]
 mod tests {
     use syn::parse_quote;
 
-    use crate::{parse_smooth_macro, parse_smooth_use};
+    use crate::{parse_substruct_root_macro, parse_substruct_use};
 
     #[test]
     fn test_simple_use() {
-        let tokens: syn::File = syn::parse2(parse_smooth_macro(parse_quote! {
-            #[derive(Smooth)]
+        let tokens: syn::File = syn::parse2(parse_substruct_root_macro(parse_quote! {
+            #[derive(SubstructRoot)]
             struct Query {
                 name: String,
             }
         }))
-            .unwrap();
+        .unwrap();
 
         assert_eq!(tokens.items.len(), 2);
 
@@ -163,9 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn test_smooth_use() {
-        let tokens: proc_macro2::TokenStream = parse_smooth_use(
-            parse_quote!( root = Query, fields(id, name) ),
+    fn test_substruct_use() {
+        let tokens: proc_macro2::TokenStream = parse_substruct_use(
+            parse_quote!(root = Query, fields(id, name)),
             parse_quote!(
                 fn print_name(query: _) -> String {
                     query.name().clone()
