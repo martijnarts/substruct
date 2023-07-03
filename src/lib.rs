@@ -5,8 +5,30 @@ use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, Attribute, DeriveInput, ItemFn};
+use quote::quote;
+use syn::{parse2, parse_macro_input, DeriveInput, ItemFn, ItemStruct};
+
+fn create_field_trait_name(root_struct_ident: &syn::Ident, field_ident: &syn::Ident) -> syn::Ident {
+    syn::Ident::new(
+        &format!(
+            "__{}__{}",
+            root_struct_ident.to_string(),
+            field_ident.to_string().as_str().to_case(Case::Pascal)
+        ),
+        field_ident.span(),
+    )
+}
+
+fn create_field_type_name(root_struct_ident: &syn::Ident, field_ident: &syn::Ident) -> syn::Ident {
+    syn::Ident::new(
+        &format!(
+            "__{}__{}__Type",
+            root_struct_ident.to_string(),
+            field_ident.to_string().as_str().to_case(Case::Pascal)
+        ),
+        field_ident.span(),
+    )
+}
 
 trait SubstructRoot {}
 
@@ -23,10 +45,8 @@ fn parse_substruct_root_macro(input: DeriveInput) -> TokenStream2 {
         let ident = field.ident.unwrap();
 
         let method_name = syn::Ident::new(&ident.to_string().to_case(Case::Snake), ident.span());
-        let trait_name = syn::Ident::new(
-            &ident.to_string().as_str().to_case(Case::Pascal),
-            ident.span(),
-        );
+        let trait_name = create_field_trait_name(&struct_ident, &ident);
+        let type_name = create_field_type_name(&struct_ident, &ident);
         let ty = field.ty;
 
         impls.push(quote! {
@@ -38,6 +58,7 @@ fn parse_substruct_root_macro(input: DeriveInput) -> TokenStream2 {
                     &self.#ident
                 }
             }
+            type #type_name = #ty;
         });
     }
 
@@ -51,6 +72,74 @@ pub fn substruct_root(orig_input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(orig_input as DeriveInput);
 
     TokenStream::from(parse_substruct_root_macro(input))
+}
+
+#[derive(FromMeta)]
+#[darling()]
+struct SubstructChild {
+    root: syn::ExprPath,
+    fields: darling::util::PathList,
+}
+
+fn parse_substruct_child(args: TokenStream2, input: TokenStream2) -> TokenStream2 {
+    let args = match NestedMeta::parse_meta_list(args) {
+        Ok(v) => v,
+        Err(e) => {
+            return TokenStream2::from(Error::from(e).write_errors());
+        }
+    };
+
+    let attr = match SubstructChild::from_list(&args) {
+        Ok(v) => v,
+        Err(e) => {
+            return e.write_errors();
+        }
+    };
+
+    let strct: ItemStruct = parse2(input).expect("Failed to parse struct");
+    let struct_ident = strct.ident;
+
+    let root_struct_ident = attr
+        .root
+        .path
+        .get_ident()
+        .expect("Failed to get root struct ident");
+
+    let mut fields = vec![];
+    let mut impls: Vec<TokenStream2> = vec![];
+    for field in attr.fields.iter() {
+        let field_ident = field.get_ident().expect("Expected ident");
+        let type_name = create_field_type_name(&root_struct_ident, &field_ident);
+        fields.push(quote! {
+            #field_ident: #type_name,
+        });
+
+        let method_name = syn::Ident::new(
+            &field_ident.to_string().to_case(Case::Snake),
+            field_ident.span(),
+        );
+        let trait_name = create_field_trait_name(&root_struct_ident, &field_ident);
+
+        impls.push(quote! {
+            impl #trait_name for #struct_ident {
+                fn #method_name(&self) -> &#type_name {
+                    &self.#field_ident
+                }
+            }
+        });
+    }
+
+    quote! {
+        struct #struct_ident {
+            #(#fields)*
+        }
+        #(#impls)*
+    }
+}
+
+#[proc_macro_attribute]
+pub fn substruct_child(args: TokenStream, input: TokenStream) -> TokenStream {
+    parse_substruct_child(args.into(), input.into()).into()
 }
 
 #[derive(FromMeta)]
@@ -82,15 +171,18 @@ fn parse_substruct_use(args: TokenStream2, item_fn: ItemFn) -> TokenStream2 {
         fn_name.span(),
     );
 
+    let root_struct_ident = attr
+        .root
+        .path
+        .get_ident()
+        .expect("Could not get root ident");
+
     let field_impls = attr.fields.iter().map(|attr| {
-        let attr = attr.segments.first().unwrap();
-        let attr = syn::Ident::new(
-            &attr.ident.to_string().to_case(Case::Pascal),
-            attr.ident.span(),
-        );
+        let field = attr.segments.first().unwrap();
+        let ident = create_field_trait_name(&root_struct_ident, &field.ident);
 
         quote! {
-            #attr
+            #ident
         }
     });
 
@@ -131,11 +223,11 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(tokens.items.len(), 2);
+        assert_eq!(tokens.items.len(), 3);
 
         tokens.items.iter().for_each(|item| {
             if let syn::Item::Trait(trait_item) = item {
-                assert_eq!(trait_item.ident.to_string(), "Name");
+                assert_eq!(trait_item.ident.to_string(), "__Query__Name");
                 assert_eq!(trait_item.items.len(), 1);
 
                 let fn_item = trait_item.items.first().unwrap();
